@@ -8,18 +8,8 @@ interface MessageItemProps {
 }
 export const MessageItem: React.FC<MessageItemProps> = React.memo(({ msg }) => {
   const isServerInit = msg.id === 'server-init';
-  // High precision formatter with millisecond resolution
-  const formatHighPrecisionTime = (timestamp: number) => {
-    if (!timestamp || timestamp <= 0) return '--:--:--.---';
-    const date = new Date(timestamp);
-    const h = date.getHours().toString().padStart(2, '0');
-    const m = date.getMinutes().toString().padStart(2, '0');
-    const s = date.getSeconds().toString().padStart(2, '0');
-    const ms = date.getMilliseconds().toString().padStart(3, '0');
-    return `${h}:${m}:${s}.${ms}`;
-  };
   return (
-    <div className="group flex flex-col space-y-0.5 animate-scale-in hover:bg-accent/5 p-2 rounded-lg transition-colors">
+    <div className="group flex flex-col space-y-1 animate-scale-in hover:bg-accent/5 p-2 rounded-lg transition-colors">
       <div className="flex items-center justify-between gap-4">
         <span className={cn(
           "text-sm font-medium tracking-tight text-pretty transition-colors",
@@ -31,27 +21,27 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ msg }) => {
           <Badge 
             variant="outline" 
             className={cn(
-              "font-mono text-[10px] shadow-sm whitespace-nowrap px-1.5 h-5",
-              msg.rtt < 50 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
-              msg.rtt < 150 ? "bg-amber-500/10 text-amber-600 border-amber-500/20" :
-              "bg-destructive/10 text-destructive border-destructive/20"
+              "font-mono text-[10px] shadow-sm whitespace-nowrap",
+              msg.rtt < 50 ? "bg-emerald-500/5 text-emerald-500 border-emerald-500/20" :
+              msg.rtt < 150 ? "bg-amber-500/5 text-amber-500 border-amber-500/20" :
+              "bg-destructive/5 text-destructive border-destructive/20"
             )}
           >
-            {msg.rtt}ms
+            {msg.rtt}ms RTT
           </Badge>
         )}
       </div>
-      <div className="flex items-center gap-3 text-[10px] text-muted-foreground/80 font-mono">
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground/60">
         {msg.clientTimestamp > 0 && (
-          <span className="flex items-center gap-1 opacity-70">
-            TX: {formatHighPrecisionTime(msg.clientTimestamp)}
+          <span className="flex items-center gap-1">
+            Tx: {new Date(msg.clientTimestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 } as any)}
           </span>
         )}
-        <span className="flex items-center gap-1 opacity-70">
-          RX: {formatHighPrecisionTime(msg.serverTimestamp)}
+        <span className="flex items-center gap-1">
+          Rx: {new Date(msg.serverTimestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 } as any)}
         </span>
       </div>
-      <Separator className="mt-2 opacity-20 group-last:hidden" />
+      <Separator className="mt-2 opacity-30 group-last:hidden" />
     </div>
   );
 });
