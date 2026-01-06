@@ -1,138 +1,211 @@
-// Home page of the app.
-// Currently a demo placeholder "please wait" screen.
-// Replace this file with your actual app UI. Do not delete it to use some other file as homepage. Simply replace the entire contents of this file.
-
-import { useEffect, useMemo, useState } from 'react'
-import { Sparkles } from 'lucide-react'
-
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { HAS_TEMPLATE_DEMO, TemplateDemo } from '@/components/TemplateDemo'
-import { Button } from '@/components/ui/button'
-import { Toaster, toast } from '@/components/ui/sonner'
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, Wifi, WifiOff, Activity, Clock, Trash2 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import { toast } from 'sonner';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { Toaster } from '@/components/ui/sonner';
+import type { EchoMessage, WsMessagePayload } from '@shared/types';
 export function HomePage() {
-  const [coins, setCoins] = useState(0)
-  const [isRunning, setIsRunning] = useState(false)
-  const [startedAt, setStartedAt] = useState<number | null>(null)
-  const [elapsedMs, setElapsedMs] = useState(0)
-
-  useEffect(() => {
-    if (!isRunning || startedAt === null) return
-
-    const t = setInterval(() => {
-      setElapsedMs(Date.now() - startedAt)
-    }, 250)
-
-    return () => clearInterval(t)
-  }, [isRunning, startedAt])
-
-  const formatted = useMemo(() => formatDuration(elapsedMs), [elapsedMs])
-
-  const onPleaseWait = () => {
-    setCoins((c) => c + 1)
-
-    if (!isRunning) {
-      // Resume from the current elapsed time
-      setStartedAt(Date.now() - elapsedMs)
-      setIsRunning(true)
-      toast.success('Building your app…', {
-        description: "Hang tight — we're setting everything up.",
-      })
-      return
+  const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [messages, setMessages] = useState<EchoMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const wsRef = useRef<WebSocket | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const connect = useCallback(() => {
+    if (wsRef.current) return;
+    setStatus('connecting');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+    try {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        setStatus('connected');
+        toast.success('Connected to NexusEcho Node');
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as EchoMessage;
+          setMessages((prev) => [...prev, data]);
+        } catch (e) {
+          console.error('Failed to parse message', e);
+        }
+      };
+      ws.onclose = () => {
+        setStatus('disconnected');
+        wsRef.current = null;
+      };
+      ws.onerror = () => {
+        setStatus('error');
+        toast.error('WebSocket connection error');
+      };
+      wsRef.current = ws;
+    } catch (e) {
+      setStatus('error');
+      console.error(e);
     }
-
-    setIsRunning(false)
-    toast.info('Still working…', {
-      description: 'You can come back in a moment.',
-    })
-  }
-
-  const onReset = () => {
-    setCoins(0)
-    setIsRunning(false)
-    setStartedAt(null)
-    setElapsedMs(0)
-    toast('Reset complete')
-  }
-
-  const onAddCoin = () => {
-    setCoins((c) => c + 1)
-    toast('Coin added')
-  }
-
+  }, []);
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+      setStatus('disconnected');
+      toast.info('Disconnected from server');
+    }
+  }, []);
+  const sendMessage = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!inputText.trim() || status !== 'connected' || !wsRef.current) return;
+    const payload: WsMessagePayload = {
+      id: uuidv4(),
+      text: inputText.trim(),
+      clientTimestamp: Date.now(),
+    };
+    wsRef.current.send(JSON.stringify(payload));
+    setInputText('');
+  };
+  const clearLogs = () => {
+    setMessages([]);
+    toast.info('Message logs cleared');
+  };
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-4 overflow-hidden relative">
-      <ThemeToggle />
-      <div className="absolute inset-0 bg-gradient-rainbow opacity-10 dark:opacity-20 pointer-events-none" />
-
-      <div className="text-center space-y-8 relative z-10 animate-fade-in w-full">
-        <div className="flex justify-center">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-primary floating">
-            <Sparkles className="w-8 h-8 text-white rotating" />
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="py-8 md:py-10 lg:py-12 min-h-screen flex flex-col space-y-8 relative">
+        <ThemeToggle />
+        <div className="absolute inset-0 bg-radial-gradient-subtle pointer-events-none -z-10" />
+        {/* Header Section */}
+        <div className="text-center space-y-4 animate-fade-in">
+          <div className="flex justify-center mb-4">
+            <div className="p-3 bg-accent-primary/10 rounded-2xl">
+              <Activity className="w-10 h-10 text-accent-primary animate-pulse" />
+            </div>
           </div>
-        </div>
-
-        <div className="space-y-3">
-          <h1 className="text-5xl md:text-7xl font-display font-bold text-balance leading-tight">
-            Creating your <span className="text-gradient">app</span>
+          <h1 className="text-5xl md:text-7xl font-display font-bold tracking-tight text-foreground">
+            Nexus<span className="text-accent-primary">Echo</span>
           </h1>
-          <p className="text-lg md:text-xl text-muted-foreground max-w-xl mx-auto text-pretty">
-            Your application would be ready soon.
+          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto text-pretty">
+            Low-latency real-time echo service powered by Cloudflare Durable Objects.
+            Measure your edge network performance in real-time.
           </p>
         </div>
-
-        {HAS_TEMPLATE_DEMO ? (
-          <div className="max-w-5xl mx-auto text-left">
-            <TemplateDemo />
-          </div>
-        ) : (
-          <>
-            <div className="flex justify-center gap-4">
-              <Button
-                size="lg"
-                onClick={onPleaseWait}
-                className="btn-gradient px-8 py-4 text-lg font-semibold hover:-translate-y-0.5 transition-all duration-200"
-                aria-live="polite"
-              >
-                Please Wait
-              </Button>
-            </div>
-
-            <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
-              <div>
-                Time elapsed:{' '}
-                <span className="font-medium tabular-nums text-foreground">{formatted}</span>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Interaction Area */}
+          <Card className="lg:col-span-5 shadow-soft border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl">Control Center</CardTitle>
+                  <CardDescription>Manage your connection and send pulses</CardDescription>
+                </div>
+                <Badge 
+                  variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
+                  className="px-3 py-1 capitalize"
+                >
+                  {status === 'connected' && <Wifi className="w-3 h-3 mr-2" />}
+                  {status === 'disconnected' && <WifiOff className="w-3 h-3 mr-2" />}
+                  {status}
+                </Badge>
               </div>
-              <div>
-                Coins:{' '}
-                <span className="font-medium tabular-nums text-foreground">{coins}</span>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex gap-2">
+                {status === 'connected' ? (
+                  <Button variant="outline" className="w-full" onClick={disconnect}>
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button 
+                    className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white" 
+                    onClick={connect}
+                    disabled={status === 'connecting'}
+                  >
+                    {status === 'connecting' ? 'Connecting...' : 'Connect to Node'}
+                  </Button>
+                )}
               </div>
-            </div>
-
-            <div className="flex justify-center gap-2">
-              <Button variant="outline" size="sm" onClick={onReset}>
-                Reset
+              <Separator />
+              <form onSubmit={sendMessage} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground px-1">Message Payload</label>
+                  <Input
+                    placeholder={status === 'connected' ? "Type a message..." : "Connect to send messages"}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    disabled={status !== 'connected'}
+                    className="bg-secondary/50 border-input h-12"
+                  />
+                </div>
+                <Button 
+                  type="submit" 
+                  disabled={status !== 'connected' || !inputText.trim()}
+                  className="w-full flex items-center justify-center gap-2 h-12 text-base font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <Send className="w-4 h-4" />
+                  Send Pulse
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+          {/* Logs Area */}
+          <Card className="lg:col-span-7 shadow-soft border-border/50 flex flex-col h-[500px] md:h-[600px] overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between shrink-0">
+              <div>
+                <CardTitle className="text-2xl">Live Echo Stream</CardTitle>
+                <CardDescription>Real-time RTT measurements</CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={clearLogs} disabled={messages.length === 0}>
+                <Trash2 className="w-4 h-4 text-muted-foreground" />
               </Button>
-              <Button variant="outline" size="sm" onClick={onAddCoin}>
-                Add Coin
-              </Button>
-            </div>
-          </>
-        )}
+            </CardHeader>
+            <CardContent className="p-0 flex-1 overflow-hidden">
+              <ScrollArea className="h-full px-6">
+                <div className="space-y-4 py-4" ref={scrollRef}>
+                  {messages.length === 0 ? (
+                    <div className="h-[400px] flex flex-col items-center justify-center text-muted-foreground space-y-4">
+                      <Clock className="w-12 h-12 opacity-20" />
+                      <p>Waiting for pulses...</p>
+                    </div>
+                  ) : (
+                    messages.map((msg) => {
+                      const rtt = Date.now() - msg.clientTimestamp;
+                      return (
+                        <div key={msg.id} className="flex flex-col space-y-1 animate-scale-in">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-foreground">{msg.text}</span>
+                            <Badge variant="outline" className="font-mono text-2xs bg-accent-primary/5 border-accent-primary/20 text-accent-primary">
+                              {rtt}ms RTT
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+                            <span>Client: {new Date(msg.clientTimestamp).toLocaleTimeString()}</span>
+                            <span>•</span>
+                            <span>Server Echo: {new Date(msg.serverTimestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <Separator className="mt-2 opacity-50" />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </div>
+        <footer className="pt-12 pb-6 text-center text-muted-foreground/60 text-sm">
+          <p>Powered by Cloudflare Workers & Durable Objects</p>
+        </footer>
       </div>
-
-      <footer className="absolute bottom-8 text-center text-muted-foreground/80">
-        <p>Powered by Cloudflare</p>
-      </footer>
-
-      <Toaster richColors closeButton />
+      <Toaster richColors position="top-right" />
     </div>
-  )
+  );
 }
