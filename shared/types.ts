@@ -25,6 +25,7 @@ export interface WsAttempt {
   success: boolean;
   error?: string;
   stage?: string;
+  headers?: Record<string, string>;
 }
 /**
  * Response interface for the dedicated /api/health-do endpoint
@@ -35,4 +36,23 @@ export interface HealthResponse {
   doId: string;
   usage: string;
   protocol?: string;
+}
+/**
+ * High-level infrastructure status response
+ */
+export interface WorkerStatusResponse {
+  binding: 'available' | 'missing';
+  stub: 'created' | 'failed';
+  doLogic: 'reachable' | 'unreachable';
+  userRoutesLoaded: boolean;
+  timestamp: string;
+  details?: string;
+}
+/**
+ * Fallback diagnostic summary when DO is unreachable
+ */
+export interface DiagnosticSummary {
+  source: 'cache' | 'fallback';
+  message: string;
+  attempts: WsAttempt[];
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Activity, Trash2, Bug, RefreshCw, Server, ArrowDown, Settings2, Network } from 'lucide-react';
+import { Send, Activity, Trash2, Bug, RefreshCw, Server, ArrowDown, Settings2, Network, ShieldCheck, Terminal } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatsGrid } from '@/components/telemetry/StatsGrid';
 import { MessageItem } from '@/components/telemetry/MessageItem';
-import type { EchoMessage, WsMessagePayload, WsAttempt, ApiResponse, HealthResponse } from '@shared/types';
+import type { EchoMessage, WsMessagePayload, WsAttempt, ApiResponse, HealthResponse, WorkerStatusResponse } from '@shared/types';
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_HISTORY_LIMIT = 200;
@@ -26,6 +26,7 @@ export function HomePage() {
   const [diagAttempts, setDiagAttempts] = useState<WsAttempt[]>([]);
   const [isLoadingDiag, setIsLoadingDiag] = useState(false);
   const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatusResponse | null>(null);
   const [autoReconnect, setAutoReconnect] = useState(true);
   const [reconnectCount, setReconnectCount] = useState(0);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
@@ -127,12 +128,22 @@ export function HomePage() {
       disconnect();
     };
   }, [disconnect]);
+  const fetchWorkerStatus = async () => {
+    try {
+      const res = await fetch('/api/worker-status');
+      const data = await res.json() as WorkerStatusResponse;
+      setWorkerStatus(data);
+    } catch (e) {
+      console.error('Worker status check failed', e);
+    }
+  };
   const fetchDiagnostics = async () => {
     setIsLoadingDiag(true);
+    fetchWorkerStatus();
     try {
       const res = await fetch('/api/ws-diag');
       const json = await res.json() as ApiResponse<WsAttempt[]>;
-      if (isMountedRef.current && json.success && json.data) {
+      if (isMountedRef.current && json.data) {
         setDiagAttempts(json.data);
       }
     } catch (e) {
@@ -178,7 +189,7 @@ export function HomePage() {
   };
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const threshold = 50; 
+    const threshold = 50;
     const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + threshold;
     isAtBottomRef.current = isAtBottom;
     if (isAtBottom && showNewMessageButton) {
@@ -209,7 +220,7 @@ export function HomePage() {
             Nexus<span className="text-accent-primary">Echo</span>
           </h1>
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto text-pretty">
-            Advanced real-time telemetry analytics powered by Cloudflare Durable Objects.
+            Professional-grade WebSocket telemetry and observability layer.
           </p>
         </div>
         <StatsGrid messages={messages} status={status} />
@@ -222,18 +233,13 @@ export function HomePage() {
                   <CardDescription>Handshake & Uplink Management</CardDescription>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge 
+                  <Badge
                     variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
                     className={`px-3 py-1 capitalize transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}
                   >
                     {status === 'connecting' && <RefreshCw className="w-3 h-3 mr-2 animate-spin" />}
                     {status}
                   </Badge>
-                  {reconnectCount > 0 && status !== 'connected' && (
-                    <span className="text-[10px] text-muted-foreground animate-pulse font-mono">
-                      RETRY {reconnectCount}/{MAX_RECONNECT_ATTEMPTS}
-                    </span>
-                  )}
                 </div>
               </div>
             </CardHeader>
@@ -244,10 +250,10 @@ export function HomePage() {
                     <Settings2 className="w-4 h-4 text-muted-foreground" />
                     <Label htmlFor="auto-reconnect" className="text-sm font-medium cursor-pointer">Auto-Reconnect</Label>
                   </div>
-                  <Switch 
-                    id="auto-reconnect" 
-                    checked={autoReconnect} 
-                    onCheckedChange={setAutoReconnect} 
+                  <Switch
+                    id="auto-reconnect"
+                    checked={autoReconnect}
+                    onCheckedChange={setAutoReconnect}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -256,8 +262,8 @@ export function HomePage() {
                       Terminate Link
                     </Button>
                   ) : (
-                    <Button 
-                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-lg shadow-accent-primary/20" 
+                    <Button
+                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-lg shadow-accent-primary/20"
                       onClick={connect}
                       disabled={status === 'connecting'}
                     >
@@ -270,49 +276,81 @@ export function HomePage() {
                         <Bug className="h-4 w-4" />
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[600px]">
+                    <DialogContent className="sm:max-w-[700px] max-h-[90vh] flex flex-col">
                       <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                          <Server className="w-5 h-5 text-accent-primary" />
-                          Diagnostic Console
+                          <Terminal className="w-5 h-5 text-accent-primary" />
+                          Diagnostic Console v4
                         </DialogTitle>
-                        <DialogDescription>Internal infrastructure health and audit logs.</DialogDescription>
+                        <DialogDescription>Infrastructure health and audit logs for low-level debugging.</DialogDescription>
                       </DialogHeader>
-                      <div className="py-4 space-y-4">
+                      <div className="flex-1 overflow-y-auto pr-2 space-y-6 py-4">
+                        {/* System Health Section */}
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                            <ShieldCheck className="w-3 h-3" /> System Overview
+                          </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 rounded-lg border bg-secondary/10 space-y-1">
+                              <p className="text-xs text-muted-foreground">Binding Status</p>
+                              <Badge variant={workerStatus?.binding === 'available' ? 'default' : 'destructive'} className="text-[9px]">
+                                {workerStatus?.binding || 'unknown'}
+                              </Badge>
+                            </div>
+                            <div className="p-3 rounded-lg border bg-secondary/10 space-y-1">
+                              <p className="text-xs text-muted-foreground">Logic Core</p>
+                              <Badge variant={workerStatus?.doLogic === 'reachable' ? 'default' : 'destructive'} className="text-[9px]">
+                                {workerStatus?.doLogic || 'checking...'}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
                         <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 border">
                           <div className="space-y-1">
-                            <p className="text-sm font-semibold">Durable Object Instance</p>
+                            <p className="text-sm font-semibold">Control Plane Link</p>
                             <p className="text-xs text-muted-foreground font-mono">
-                              {healthStatus ? `ID: ${healthStatus.doId.slice(0, 16)}...` : 'Status unknown'}
+                              {healthStatus ? `DO_ID: ${healthStatus.doId.slice(0, 16)}...` : 'Path verification required'}
                             </p>
                           </div>
                           <Button size="sm" onClick={checkDoHealth} className="gap-2">
-                            <Activity className="w-3 h-3" /> Audit Path
+                            <Activity className="w-3 h-3" /> Verify Path
                           </Button>
                         </div>
                         <Separator />
-                        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Handshake History</p>
-                        <ScrollArea className="h-[250px] pr-4">
-                          <div className="space-y-3">
-                            {isLoadingDiag ? (
-                              <div className="py-10 flex justify-center"><Activity className="animate-spin text-accent-primary" /></div>
-                            ) : diagAttempts.length === 0 ? (
-                              <p className="text-center py-10 text-muted-foreground text-sm italic">No recent logs found</p>
-                            ) : (
-                              diagAttempts.map((attempt, i) => (
-                                <div key={`${attempt.time}-${i}`} className="p-3 rounded border text-xs bg-secondary/10 group">
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="font-mono text-muted-foreground">{new Date(attempt.time).toLocaleString()}</span>
-                                    <Badge variant={attempt.success ? "default" : "destructive"} className="text-[9px] uppercase tracking-tighter">
-                                      {attempt.success ? "Success" : "Handshake Error"}
-                                    </Badge>
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Handshake Audit Log</p>
+                          <ScrollArea className="h-[300px] rounded-md border bg-black/[0.02] p-2">
+                            <div className="space-y-3">
+                              {isLoadingDiag ? (
+                                <div className="py-20 flex justify-center"><Activity className="animate-spin text-accent-primary" /></div>
+                              ) : diagAttempts.length === 0 ? (
+                                <p className="text-center py-20 text-muted-foreground text-sm italic">No audit records found in current DO epoch</p>
+                              ) : (
+                                diagAttempts.map((attempt, i) => (
+                                  <div key={`${attempt.time}-${i}`} className="p-3 rounded border text-xs bg-card group transition-colors hover:border-accent-primary/30">
+                                    <div className="flex justify-between items-center mb-2">
+                                      <span className="font-mono text-[10px] text-muted-foreground">{new Date(attempt.time).toLocaleTimeString()}</span>
+                                      <Badge variant={attempt.success ? "default" : "destructive"} className="text-[8px] uppercase">
+                                        {attempt.stage || (attempt.success ? "Success" : "Failed")}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground line-clamp-1 mb-2 font-mono bg-secondary/30 p-1 rounded">
+                                      {attempt.userAgent}
+                                    </p>
+                                    {attempt.headers && (
+                                      <div className="mt-2 space-y-1">
+                                        <p className="text-[9px] font-bold text-muted-foreground uppercase">Runtime Metadata:</p>
+                                        <pre className="text-[9px] bg-secondary/50 p-2 rounded overflow-x-auto font-mono text-accent-primary/80">
+                                          {JSON.stringify(attempt.headers, null, 2)}
+                                        </pre>
+                                      </div>
+                                    )}
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground truncate group-hover:whitespace-normal transition-all">{attempt.userAgent}</p>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </ScrollArea>
+                                ))
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </div>
                       </div>
                     </DialogContent>
                   </Dialog>
@@ -322,7 +360,7 @@ export function HomePage() {
               <form onSubmit={sendMessage} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="msg-input" className="text-sm font-medium text-foreground px-1">Telemetry Pulse</Label>
-                  <Input 
+                  <Input
                     id="msg-input"
                     placeholder={status === 'connected' ? "Enter payload data..." : "Uplink offline"}
                     value={inputText}
@@ -331,8 +369,8 @@ export function HomePage() {
                     className="bg-secondary/30 h-12 focus-visible:ring-accent-primary border-none shadow-inner"
                   />
                 </div>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={status !== 'connected' || !inputText.trim()}
                   className="w-full h-12 text-base transition-all active:scale-[0.98] bg-foreground text-background hover:bg-foreground/90"
                 >
@@ -350,9 +388,9 @@ export function HomePage() {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setMessages([])}
                       disabled={messages.length === 0}
                       className="hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -365,15 +403,15 @@ export function HomePage() {
               </TooltipProvider>
             </CardHeader>
             <CardContent className="p-0 flex-1 overflow-hidden relative">
-              <ScrollArea 
-                className="h-full px-6" 
+              <ScrollArea
+                className="h-full px-6"
                 ref={scrollViewportRef}
                 onScrollCapture={handleScroll}
               >
                 <div className="space-y-2 py-6">
                   {messages.length === 0 ? (
-                    <div className="h-[450px] flex flex-col items-center justify-center text-muted-foreground space-y-4 animate-pulse">
-                      <Activity className="w-12 h-12 opacity-10" />
+                    <div className="h-[450px] flex flex-col items-center justify-center text-muted-foreground space-y-4">
+                      <Activity className="w-12 h-12 opacity-10 animate-pulse" />
                       <p className="text-sm font-medium opacity-50 tracking-widest uppercase">Awaiting Data Pulse...</p>
                     </div>
                   ) : (
@@ -385,8 +423,8 @@ export function HomePage() {
               </ScrollArea>
               {showNewMessageButton && (
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-                  <Button 
-                    size="sm" 
+                  <Button
+                    size="sm"
                     className="rounded-full shadow-2xl bg-accent-primary text-white gap-2 px-6 h-10 hover:scale-105 active:scale-95 transition-all"
                     onClick={scrollToBottom}
                   >
@@ -400,7 +438,7 @@ export function HomePage() {
         </div>
         <footer className="pt-16 pb-8 text-center space-y-2">
           <div className="text-muted-foreground/30 text-[10px] tracking-[0.3em] uppercase font-mono">
-            NEXUS ECHO v3.0 // ENTERPRISE EDGE TELEMETRY
+            NEXUS ECHO v4.0 // OBSERVABILITY ENABLED
           </div>
           <div className="text-muted-foreground/20 text-[8px] font-mono">
             PROVISIONED BY CLOUDFLARE WORKERS & DURABLE OBJECTS

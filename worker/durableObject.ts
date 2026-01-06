@@ -40,7 +40,7 @@ export class GlobalDurableObject extends DurableObject {
     const attempts = await this.ctx.storage.get("ws_attempts");
     return (attempts as WsAttempt[]) || [];
   }
-  async recordWsAttempt(userAgent: string, origin: string, error?: string, stage?: string): Promise<void> {
+  async recordWsAttempt(userAgent: string, origin: string, error?: string, stage?: string, headers?: Record<string, string>): Promise<void> {
     const attempts = await this.getWsAttempts();
     const newAttempt: WsAttempt = {
       time: Date.now(),
@@ -48,7 +48,8 @@ export class GlobalDurableObject extends DurableObject {
       origin,
       success: !error,
       error,
-      stage
+      stage,
+      headers
     };
     const updated = [newAttempt, ...attempts].slice(0, 15);
     await this.ctx.storage.put("ws_attempts", updated);
@@ -67,14 +68,17 @@ export class GlobalDurableObject extends DurableObject {
     const connectionHeader = request.headers.get('Connection') || '';
     const userAgent = request.headers.get('User-Agent') || 'unknown';
     const origin = request.headers.get('Origin') || 'unknown';
+    // Verbose logging for infrastructure monitoring
+    const headersSnapshot: Record<string, string> = {};
+    request.headers.forEach((v, k) => { headersSnapshot[k] = v; });
+    console.error(`[DO Fetch] Path: ${url.pathname}, Headers: ${JSON.stringify(headersSnapshot)}`);
     // Handle standard HTTP Diagnostic/Health requests
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
-      console.log(`[DO HTTP Diagnostic] Health check received at ${url.pathname}`);
       const health: HealthResponse = {
         status: 'Durable Object logic core active',
         timestamp: Date.now(),
         doId: this.ctx.id.toString(),
-        usage: 'nexus_echo_v3',
+        usage: 'nexus_echo_v4',
         protocol: 'http/1.1'
       };
       return new Response(JSON.stringify(health), {
@@ -84,14 +88,18 @@ export class GlobalDurableObject extends DurableObject {
     }
     // Strict validation for WebSocket upgrade requests
     if (request.method !== 'GET' || !connectionHeader.toLowerCase().includes('upgrade')) {
+      await this.recordWsAttempt(userAgent, origin, "Invalid Upgrade Request", "handshake_rejection", headersSnapshot);
       return new Response("Expected Upgrade: websocket", { status: 426 });
     }
     console.log(`[DO WS Handshake] Initializing WebSocket pair for ${userAgent}`);
-    await this.recordWsAttempt(userAgent, origin, undefined, 'handshake_start');
+    await this.recordWsAttempt(userAgent, origin, undefined, 'handshake_start', {
+      'cf-ray': headersSnapshot['cf-ray'] || 'n/a',
+      'cf-connecting-ip': headersSnapshot['cf-connecting-ip'] || 'n/a',
+      'origin': headersSnapshot['origin'] || 'n/a'
+    });
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     server.accept();
-    console.log(`[DO WS Accepted] Connection accepted, event listeners attached`);
     server.addEventListener("message", async (event) => {
       try {
         const payload = JSON.parse(event.data as string) as WsMessagePayload;
@@ -108,9 +116,6 @@ export class GlobalDurableObject extends DurableObject {
     server.addEventListener("close", (cls) => {
       console.log(`[DO WS Closed] Code: ${cls.code}, Reason: ${cls.reason}`);
     });
-    server.addEventListener("error", (err) => {
-      console.error(`[DO WS Internal Error]`, err);
-    });
     // Send initial welcome frame
     setTimeout(() => {
       try {
@@ -121,9 +126,8 @@ export class GlobalDurableObject extends DurableObject {
           serverTimestamp: Date.now()
         };
         server.send(JSON.stringify(connectedMsg));
-        console.log(`[DO WS Welcome] Frame dispatched`);
       } catch (e) {
-        console.warn(`[DO WS Init Warning] Early connection termination detected`);
+        console.warn(`[DO WS Init Warning] Early connection termination`);
       }
     }, 50);
     return new Response(null, { status: 101, webSocket: client });

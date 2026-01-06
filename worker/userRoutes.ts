@@ -1,7 +1,7 @@
 import { Hono, Context } from "hono";
 import { Env } from './core-utils';
 import "./durableObject";
-import type { ApiResponse, WsAttempt } from '@shared/types';
+import type { ApiResponse, WsAttempt, WorkerStatusResponse, DiagnosticSummary } from '@shared/types';
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   const getGlobalStub = (c: Context<{ Bindings: Env }>) => {
     if (!c.env.GlobalDurableObject) {
@@ -10,27 +10,50 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     }
     return c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName('global'));
   };
+  // NEW: System-level observability endpoint
+  app.get('/api/worker-status', async (c) => {
+    const status: WorkerStatusResponse = {
+      binding: c.env.GlobalDurableObject ? 'available' : 'missing',
+      stub: 'failed',
+      doLogic: 'unreachable',
+      userRoutesLoaded: true, // If we're here, they are loaded
+      timestamp: new Date().toISOString()
+    };
+    try {
+      const stub = getGlobalStub(c);
+      status.stub = 'created';
+      // Test DO reachability via internal sub-request
+      const testRes = await stub.fetch(new Request("http://internal/api/test"));
+      if (testRes.ok) {
+        status.doLogic = 'reachable';
+      }
+    } catch (err) {
+      status.details = err instanceof Error ? err.message : String(err);
+    }
+    return c.json(status);
+  });
   app.get('/api/test', (c) => c.json({ success: true, data: { name: 'NexusEcho API' } }));
-  // Dedicated HTTP health check for the Durable Object
   app.get('/api/health-do', async (c) => {
     try {
       const stub = getGlobalStub(c);
-      // Proxy a standard HTTP request to the DO fetch handler
       return await stub.fetch(c.req.raw);
     } catch (err) {
       console.error('[Health DO Error]', err);
       return c.json({ success: false, error: 'Durable Object health check failed' }, 500);
     }
   });
-  // Hardened WebSocket proxy endpoint
   app.get('/api/ws', async (c) => {
     const upgradeHeader = c.req.header('Upgrade') || '';
     const connectionHeader = c.req.header('Connection') || '';
-    // Strict Cloudflare-aligned WebSocket validation
+    // Verbose logging for infrastructure hardening
+    console.error(`[WS Handshake Received] Protocol: ${c.req.raw.url}, Method: ${c.req.method}`);
+    const headers: Record<string, string> = {};
+    c.req.raw.headers.forEach((val, key) => { headers[key] = val; });
+    console.error(`[WS Headers Snapshot] ${JSON.stringify(headers)}`);
     const isWebSocket = upgradeHeader.toLowerCase() === 'websocket';
     const isUpgrade = connectionHeader.toLowerCase().includes('upgrade');
     if (!isWebSocket || !isUpgrade) {
-      console.warn(`[WS Reject] Invalid handshake attempt: Upgrade=${upgradeHeader}, Conn=${connectionHeader}`);
+      console.error(`[WS Reject] Invalid handshake: Upgrade=${upgradeHeader}, Conn=${connectionHeader}`);
       return new Response("Expected websocket", { status: 426 });
     }
     try {
@@ -53,7 +76,13 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       const attempts = await stub.getWsAttempts();
       return c.json({ success: true, data: attempts } satisfies ApiResponse<WsAttempt[]>);
     } catch (err) {
-      return c.json({ success: false, error: 'Failed to fetch diagnostics' }, 500);
+      console.error('[Diag Error] Returning fallback summary:', err);
+      const fallback: DiagnosticSummary = {
+        source: 'fallback',
+        message: 'Durable Object logic core unresponsive',
+        attempts: []
+      };
+      return c.json({ success: false, error: 'Logic core offline', detail: String(err), data: [] });
     }
   });
   app.get('/api/counter', async (c) => {
