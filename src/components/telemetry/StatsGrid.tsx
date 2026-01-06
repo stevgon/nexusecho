@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Clock, Zap, Activity, ShieldCheck } from 'lucide-react';
+import { Clock, Zap, Activity } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { EchoMessage } from '@shared/types';
 interface StatsGridProps {
@@ -8,54 +8,65 @@ interface StatsGridProps {
 }
 export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
   const stats = useMemo(() => {
-    const validRtts = messages
-      .map((m) => m.rtt)
-      .filter((rtt): rtt is number => rtt !== undefined && rtt > 0);
-    if (validRtts.length === 0) {
+    let sum = 0;
+    let count = 0;
+    let peak = 0;
+    let diffSum = 0;
+    // Single pass for efficiency
+    for (let i = 0; i < messages.length; i++) {
+      const rtt = messages[i].rtt;
+      if (rtt !== undefined && rtt > 0) {
+        sum += rtt;
+        count++;
+        if (rtt > peak) peak = rtt;
+      }
+    }
+    if (count === 0) {
       return { avg: 0, jitter: 0, peak: 0, total: messages.length };
     }
-    const sum = validRtts.reduce((a, b) => a + b, 0);
-    const avg = sum / validRtts.length;
-    const peak = Math.max(...validRtts);
-    // Jitter calculation (Mean Absolute Deviation of RTT)
-    const jitter = validRtts.length > 1 
-      ? validRtts.reduce((acc, val) => acc + Math.abs(val - avg), 0) / validRtts.length
-      : 0;
+    const avg = sum / count;
+    // Second pass for jitter (mean absolute deviation)
+    for (let i = 0; i < messages.length; i++) {
+      const rtt = messages[i].rtt;
+      if (rtt !== undefined && rtt > 0) {
+        diffSum += Math.abs(rtt - avg);
+      }
+    }
     return {
       avg: Math.round(avg),
-      jitter: Math.round(jitter),
+      jitter: Math.round(diffSum / count),
       peak: Math.round(peak),
       total: messages.length,
     };
   }, [messages]);
   const metrics = [
     {
-      label: 'Average Latency',
+      label: 'Avg. Latency',
       value: `${stats.avg}ms`,
       icon: Clock,
       color: 'text-blue-500',
-      description: 'Mean round-trip time',
+      description: `Peak: ${stats.peak}ms`,
     },
     {
       label: 'Network Jitter',
       value: `${stats.jitter}ms`,
       icon: Activity,
       color: 'text-purple-500',
-      description: 'Latency variance',
+      description: 'RTT Variance',
     },
     {
       label: 'Data Packets',
-      value: stats.total.toString(),
+      value: stats.total.toLocaleString(),
       icon: Zap,
       color: 'text-amber-500',
-      description: 'Total echoes received',
+      description: 'Streamed Frames',
       live: status === 'connected',
     },
   ];
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 w-full animate-fade-in">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 w-full animate-fade-in [animation-duration:400ms]">
       {metrics.map((metric) => (
-        <Card key={metric.label} className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-accent-primary/50 transition-colors">
+        <Card key={metric.label} className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-accent-primary/50 transition-all duration-300">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-2">
               <div className={`p-2 rounded-lg bg-secondary/50 ${metric.color}`}>
@@ -71,12 +82,12 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
                 </div>
               )}
             </div>
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium text-muted-foreground">{metric.label}</h3>
+            <div className="space-y-0.5">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{metric.label}</h3>
               <p className="text-3xl font-mono font-bold tracking-tight text-foreground">
                 {metric.value}
               </p>
-              <p className="text-xs text-muted-foreground/70">{metric.description}</p>
+              <p className="text-[10px] font-medium text-muted-foreground/60">{metric.description}</p>
             </div>
           </CardContent>
         </Card>

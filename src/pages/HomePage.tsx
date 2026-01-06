@@ -18,6 +18,7 @@ import { MessageItem } from '@/components/telemetry/MessageItem';
 import type { EchoMessage, WsMessagePayload, WsAttempt, ApiResponse, HealthResponse } from '@shared/types';
 const MAX_RECONNECT_ATTEMPTS = 5;
 const INITIAL_RECONNECT_DELAY = 1000;
+const MAX_HISTORY_LIMIT = 200;
 export function HomePage() {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [messages, setMessages] = useState<EchoMessage[]>([]);
@@ -66,15 +67,18 @@ export function HomePage() {
         toast.success('Infrastructure Uplink Active');
       };
       ws.onmessage = (event) => {
-        if (!isMountedRef.current) return;
         const arrivalTime = Date.now();
+        if (!isMountedRef.current) return;
         try {
           const data = JSON.parse(event.data) as EchoMessage;
           const enrichedMessage: EchoMessage = {
             ...data,
             rtt: data.clientTimestamp > 0 ? Math.max(0, arrivalTime - data.clientTimestamp) : undefined
           };
-          setMessages((prev) => [...prev, enrichedMessage]);
+          setMessages((prev) => {
+            const next = [...prev, enrichedMessage];
+            return next.length > MAX_HISTORY_LIMIT ? next.slice(-MAX_HISTORY_LIMIT) : next;
+          });
           if (!isAtBottomRef.current) {
             setShowNewMessageButton(true);
           }
@@ -86,16 +90,22 @@ export function HomePage() {
         if (!isMountedRef.current) return;
         wsRef.current = null;
         setStatus('disconnected');
-        if (!event.wasClean && autoReconnect && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
-          const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectCount);
-          setReconnectCount(prev => prev + 1);
-          toast.info(`Link lost. Re-establishing in ${delay}ms...`);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, delay);
-        } else if (!event.wasClean && reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
-          setStatus('error');
-          toast.error('Critical: Maximum handshake attempts exceeded');
+        // Reconnection logic using local state ref pattern to avoid hook cycle
+        if (!event.wasClean && autoReconnect) {
+          setReconnectCount((count) => {
+            if (count < MAX_RECONNECT_ATTEMPTS) {
+              const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, count);
+              toast.info(`Link lost. Re-establishing in ${delay}ms...`);
+              reconnectTimeoutRef.current = setTimeout(() => {
+                connect();
+              }, delay);
+              return count + 1;
+            } else {
+              setStatus('error');
+              toast.error('Critical: Maximum handshake attempts exceeded');
+              return count;
+            }
+          });
         }
       };
       ws.onerror = () => {
@@ -107,7 +117,7 @@ export function HomePage() {
       setStatus('error');
       wsRef.current = null;
     }
-  }, [autoReconnect, reconnectCount]);
+  }, [autoReconnect]);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -167,7 +177,8 @@ export function HomePage() {
   };
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
+    // Buffer threshold increased to 150px for better sensitivity
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 150;
     isAtBottomRef.current = isAtBottom;
     if (isAtBottom) {
       setShowNewMessageButton(false);
@@ -186,7 +197,6 @@ export function HomePage() {
       <div className="py-8 md:py-10 lg:py-12 min-h-screen flex flex-col space-y-8 relative">
         <ThemeToggle />
         <div className="absolute inset-0 bg-radial-gradient-subtle pointer-events-none -z-10" />
-        {/* Header Section */}
         <div className="text-center space-y-4 animate-fade-in">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-accent-primary/10 rounded-2xl relative">
@@ -201,9 +211,7 @@ export function HomePage() {
             Advanced real-time telemetry analytics powered by Cloudflare Durable Objects.
           </p>
         </div>
-        {/* Real-time Stats Grid */}
         <StatsGrid messages={messages} status={status} />
-        {/* Main Workspace */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <Card className="lg:col-span-5 shadow-soft border-border/50 bg-card/80 backdrop-blur-sm">
             <CardHeader>
@@ -239,7 +247,6 @@ export function HomePage() {
                     id="auto-reconnect"
                     checked={autoReconnect}
                     onCheckedChange={setAutoReconnect}
-                    aria-label="Toggle automatic reconnection"
                   />
                 </div>
                 <div className="flex gap-2">
