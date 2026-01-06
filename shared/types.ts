@@ -15,4 +15,5 @@ export interface WsMessagePayload {
 }
 export interface EchoMessage extends WsMessagePayload {
   serverTimestamp: number;
+  rtt?: number;
 }
