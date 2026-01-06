@@ -7,6 +7,7 @@ export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  detail?: string;
 }
 export interface WsMessagePayload {
   id: string;
@@ -22,4 +23,12 @@ export interface WsAttempt {
   userAgent: string;
   origin: string;
   success: boolean;
+  error?: string;
+  stage?: string;
+}
+export interface HealthResponse {
+  status: string;
+  timestamp: number;
+  doId: string;
+  usage: string;
 }
