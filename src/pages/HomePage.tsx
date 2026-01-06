@@ -29,11 +29,9 @@ export function HomePage() {
         toast.success('Connected to NexusEcho Node');
       };
       ws.onmessage = (event) => {
-        // High-precision arrival time capture
         const arrivalTime = Date.now();
         try {
           const data = JSON.parse(event.data) as EchoMessage;
-          // Calculate RTT immediately to avoid React render delays or browser task scheduling noise
           const calculatedRtt = arrivalTime - data.clientTimestamp;
           const enrichedMessage: EchoMessage = {
             ...data,
@@ -51,20 +49,33 @@ export function HomePage() {
       ws.onerror = () => {
         setStatus('error');
         toast.error('WebSocket connection error');
+        wsRef.current = null;
       };
       wsRef.current = ws;
     } catch (e) {
       setStatus('error');
       console.error(e);
+      wsRef.current = null;
     }
   }, []);
   const disconnect = useCallback(() => {
     if (wsRef.current) {
-      wsRef.current.close();
+      // Explicitly set null before closing to handle reactive state updates correctly
+      const ws = wsRef.current;
       wsRef.current = null;
+      ws.close();
       setStatus('disconnected');
       toast.info('Disconnected from server');
     }
+  }, []);
+  // Lifecycle cleanup
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
   }, []);
   const sendMessage = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -74,8 +85,13 @@ export function HomePage() {
       text: inputText.trim(),
       clientTimestamp: Date.now(),
     };
-    wsRef.current.send(JSON.stringify(payload));
-    setInputText('');
+    try {
+      wsRef.current.send(JSON.stringify(payload));
+      setInputText('');
+    } catch (error) {
+      console.error('Failed to send message', error);
+      toast.error('Failed to send message');
+    }
   };
   const clearLogs = () => {
     setMessages([]);
@@ -91,7 +107,6 @@ export function HomePage() {
       <div className="py-8 md:py-10 lg:py-12 min-h-screen flex flex-col space-y-8 relative">
         <ThemeToggle />
         <div className="absolute inset-0 bg-radial-gradient-subtle pointer-events-none -z-10" />
-        {/* Header Section */}
         <div className="text-center space-y-4 animate-fade-in">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-accent-primary/10 rounded-2xl">
@@ -107,7 +122,6 @@ export function HomePage() {
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Interaction Area */}
           <Card className="lg:col-span-5 shadow-soft border-border/50 bg-card/80 backdrop-blur-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -164,12 +178,11 @@ export function HomePage() {
               </form>
             </CardContent>
           </Card>
-          {/* Logs Area */}
           <Card className="lg:col-span-7 shadow-soft border-border/50 flex flex-col h-[500px] md:h-[600px] overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between shrink-0">
               <div>
                 <CardTitle className="text-2xl">Live Echo Stream</CardTitle>
-                <CardDescription>Precision RTT measurements (Pre-computed)</CardDescription>
+                <CardDescription>Precision RTT measurements</CardDescription>
               </div>
               <Button variant="ghost" size="icon" onClick={clearLogs} disabled={messages.length === 0}>
                 <Trash2 className="w-4 h-4 text-muted-foreground" />
