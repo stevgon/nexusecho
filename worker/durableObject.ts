@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { DemoItem, WsMessagePayload, EchoMessage } from '@shared/types';
+import type { DemoItem, WsMessagePayload, EchoMessage, WsAttempt } from '@shared/types';
 import { MOCK_ITEMS } from '@shared/mock-data';
 export class GlobalDurableObject extends DurableObject {
     async getCounterValue(): Promise<number> {
@@ -36,32 +36,56 @@ export class GlobalDurableObject extends DurableObject {
       await this.ctx.storage.put("demo_items", updatedItems);
       return updatedItems;
     }
+    async getWsAttempts(): Promise<WsAttempt[]> {
+      const attempts = await this.ctx.storage.get("ws_attempts");
+      return (attempts as WsAttempt[]) || [];
+    }
+    async recordWsAttempt(userAgent: string, origin: string): Promise<void> {
+      const attempts = await this.getWsAttempts();
+      const newAttempt: WsAttempt = {
+        time: Date.now(),
+        userAgent,
+        origin,
+        success: false
+      };
+      // Keep only 10 most recent entries
+      const updated = [newAttempt, ...attempts].slice(0, 10);
+      await this.ctx.storage.put("ws_attempts", updated);
+    }
+    async markLatestAttemptSuccess(): Promise<void> {
+      const attempts = await this.getWsAttempts();
+      if (attempts.length > 0 && !attempts[0].success) {
+        attempts[0].success = true;
+        await this.ctx.storage.put("ws_attempts", attempts);
+      }
+    }
     async fetch(request: Request): Promise<Response> {
-      console.log('[TRACE WS DO] fetch(Request) invoked. URL:', request.url, 'Upgrade header:', request.headers.get('Upgrade') || 'NONE', 'Method:', request.method);
       const upgradeHeader = request.headers.get('Upgrade') ?? '';
       if (!upgradeHeader.toLowerCase().startsWith('websocket')) {
-        console.log('[TRACE WS DO] Rejecting request: not websocket upgrade');
         return new Response('Expected websocket', { status: 400 });
       }
+      // Record diagnostic attempt
+      const userAgent = request.headers.get('User-Agent') || 'unknown';
+      const origin = request.headers.get('Origin') || 'unknown';
+      await this.recordWsAttempt(userAgent, origin);
       const webSocketPair = new WebSocketPair();
       const client = webSocketPair[0];
       const server = webSocketPair[1];
-      server.addEventListener("message", (event) => {
-        console.log(`DO: Received WS message data type: ${typeof event.data}, length: ${event.data?.length || 0}`);
+      server.addEventListener("message", async (event) => {
         try {
           const payload = JSON.parse(event.data as string) as WsMessagePayload;
-          console.log(`DO: Echo sent for ID ${payload.id} payload:`, payload);
           const echoResponse: EchoMessage = {
             ...payload,
             serverTimestamp: Date.now()
           };
           server.send(JSON.stringify(echoResponse));
+          // Mark success on first successful echo
+          await this.markLatestAttemptSuccess();
         } catch (error) {
           console.error("Failed to process WS message", error);
         }
       });
       server.addEventListener('open', () => {
-        console.log('DO: Server WebSocket open, sending diagnostic connected message');
         const connectedMsg: EchoMessage = {
           id: 'server-connected',
           text: 'DO connected',
@@ -72,12 +96,10 @@ export class GlobalDurableObject extends DurableObject {
       });
       try {
         server.accept();
-        console.log('[TRACE WS DO] server WS accepted, pair ready, returning 101 Switching Protocols to client');
       } catch (error) {
-        console.error('[TRACE WS DO] Failed to accept server WS:', error);
+        console.error('Failed to accept server WS:', error);
         return new Response('WebSocket setup failed', { status: 500 });
       }
-      console.log('DO: WebSocket pair established');
       return new Response(null, { status: 101, webSocket: client });
     }
 }

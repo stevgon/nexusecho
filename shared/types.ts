@@ -17,3 +17,9 @@ export interface EchoMessage extends WsMessagePayload {
   serverTimestamp: number;
   rtt?: number;
 }
+export interface WsAttempt {
+  time: number;
+  userAgent: string;
+  origin: string;
+  success: boolean;
+}
