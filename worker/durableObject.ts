@@ -37,8 +37,10 @@ export class GlobalDurableObject extends DurableObject {
       return updatedItems;
     }
     async fetch(request: Request): Promise<Response> {
+      console.log('[TRACE WS DO] fetch(Request) invoked. URL:', request.url, 'Upgrade header:', request.headers.get('Upgrade') || 'NONE', 'Method:', request.method);
       const upgradeHeader = request.headers.get('Upgrade') ?? '';
       if (!upgradeHeader.toLowerCase().startsWith('websocket')) {
+        console.log('[TRACE WS DO] Rejecting request: not websocket upgrade');
         return new Response('Expected websocket', { status: 400 });
       }
       const webSocketPair = new WebSocketPair();
@@ -58,17 +60,23 @@ export class GlobalDurableObject extends DurableObject {
           console.error("Failed to process WS message", error);
         }
       });
-      server.addEventListener('open', () => { 
-        console.log('DO: Server WebSocket open, sending diagnostic connected message'); 
-        const connectedMsg: EchoMessage = { 
-          id: 'server-connected', 
-          text: 'DO connected', 
-          clientTimestamp: 0, 
-          serverTimestamp: Date.now() 
-        }; 
-        server.send(JSON.stringify(connectedMsg)); 
+      server.addEventListener('open', () => {
+        console.log('DO: Server WebSocket open, sending diagnostic connected message');
+        const connectedMsg: EchoMessage = {
+          id: 'server-connected',
+          text: 'DO connected',
+          clientTimestamp: 0,
+          serverTimestamp: Date.now()
+        };
+        server.send(JSON.stringify(connectedMsg));
       });
-      server.accept();
+      try {
+        server.accept();
+        console.log('[TRACE WS DO] server WS accepted, pair ready, returning 101 Switching Protocols to client');
+      } catch (error) {
+        console.error('[TRACE WS DO] Failed to accept server WS:', error);
+        return new Response('WebSocket setup failed', { status: 500 });
+      }
       console.log('DO: WebSocket pair established');
       return new Response(null, { status: 101, webSocket: client });
     }
