@@ -1,6 +1,6 @@
 # Cloudflare Workers React Template
 
-[![Deploy to Cloudflare][cloudflarebutton]]
+[![Deploy to Cloudflare][![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/stevgon/nexusecho)]
 
 A production-ready full-stack template combining Cloudflare Workers, Durable Objects for stateful persistence, React frontend with shadcn/ui, Tailwind CSS, and Hono for type-safe APIs. Built with TypeScript, Vite, and Bun for fast development and deployment.
 
@@ -106,7 +106,7 @@ This runs `bun build && wrangler deploy`.
 3. Custom domain: `wrangler deploy --name my-app`.
 4. Preview: `wrangler deploy --branch preview`.
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/stevgon/nexusecho)
 
 **Assets Handling**: SPA fallback via `wrangler.jsonc` (`assets.not_found_handling: "single-page-application"`).
 
