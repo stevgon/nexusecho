@@ -39,7 +39,6 @@ export class GlobalDurableObject extends DurableObject {
     async fetch(request: Request): Promise<Response> {
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
-      server.accept();
       server.addEventListener("message", (event) => {
         try {
           const payload = JSON.parse(event.data as string) as WsMessagePayload;
