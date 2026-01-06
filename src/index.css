@@ -99,7 +99,7 @@
   }
   
   .btn-gradient {
-    @apply btn text-white shadow-primary hover:shadow-glow hover:scale-105 active:scale-95;
+    @apply btn text-white shadow-lg hover:shadow-2xl hover:scale-105 active:scale-95;
     background: linear-gradient(135deg, #F38020 0%, #E55A1B 100%);
   }
   
@@ -126,11 +126,11 @@
   
   /* Glass Morphism */
   .glass {
-    @apply bg-white/10 backdrop-blur-md border border-white/20 shadow-glass;
+    @apply bg-white/10 backdrop-blur-md border border-white/20 shadow-2xl;
   }
-  
+
   .glass-dark {
-    @apply bg-black/10 backdrop-blur-md border border-white/10 shadow-glass;
+    @apply bg-black/10 backdrop-blur-md border border-white/10 shadow-2xl;
   }
   
   /* Interactive Effects */
@@ -165,7 +165,7 @@
   }
   
   .shimmer-bg::before {
-    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent;
+    @apply absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent;
     content: '';
   }
   
