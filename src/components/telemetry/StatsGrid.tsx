@@ -5,8 +5,9 @@ import type { EchoMessage } from '@shared/types';
 interface StatsGridProps {
   messages: EchoMessage[];
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
+  sessionTotal: number;
 }
-export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
+export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status, sessionTotal }) => {
   const stats = useMemo(() => {
     let sum = 0;
     let count = 0;
@@ -22,7 +23,7 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
       }
     }
     if (count === 0) {
-      return { avg: 0, jitter: 0, peak: 0, total: messages.length };
+      return { avg: 0, jitter: 0, peak: 0, bufferSize: messages.length };
     }
     const avg = sum / count;
     // Second pass for jitter (mean absolute deviation)
@@ -36,7 +37,7 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
       avg: Math.round(avg),
       jitter: Math.round(diffSum / count),
       peak: Math.round(peak),
-      total: messages.length,
+      bufferSize: messages.length,
     };
   }, [messages]);
   const metrics = [
@@ -55,11 +56,11 @@ export const StatsGrid: React.FC<StatsGridProps> = ({ messages, status }) => {
       description: 'RTT Variance',
     },
     {
-      label: 'Data Packets',
-      value: stats.total.toLocaleString(),
+      label: 'Total Traffic',
+      value: sessionTotal.toLocaleString(),
       icon: Zap,
       color: 'text-amber-500',
-      description: 'Streamed Frames',
+      description: `Buffer: ${stats.bufferSize} frames`,
       live: status === 'connected',
     },
   ];

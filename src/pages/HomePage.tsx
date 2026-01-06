@@ -22,6 +22,7 @@ const MAX_HISTORY_LIMIT = 200;
 export function HomePage() {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [messages, setMessages] = useState<EchoMessage[]>([]);
+  const [sessionTotal, setSessionTotal] = useState(0);
   const [inputText, setInputText] = useState('');
   const [diagAttempts, setDiagAttempts] = useState<WsAttempt[]>([]);
   const [isLoadingDiag, setIsLoadingDiag] = useState(false);
@@ -32,11 +33,11 @@ export function HomePage() {
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
   const isAtBottomRef = useRef(true);
   const wsRef = useRef<WebSocket | null>(null);
-  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const getViewport = useCallback(() => {
-    return scrollViewportRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+    return scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
   }, []);
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -79,6 +80,7 @@ export function HomePage() {
             ...data,
             rtt: data.clientTimestamp > 0 ? Math.max(0, arrivalTime - data.clientTimestamp) : undefined
           };
+          setSessionTotal(prev => prev + 1);
           setMessages((prev) => {
             const next = [...prev, enrichedMessage];
             return next.length > MAX_HISTORY_LIMIT ? next.slice(-MAX_HISTORY_LIMIT) : next;
@@ -128,6 +130,21 @@ export function HomePage() {
       disconnect();
     };
   }, [disconnect]);
+  // Reliable Scroll Detection for Radix ScrollArea
+  useEffect(() => {
+    const viewport = getViewport();
+    if (!viewport) return;
+    const handleScroll = () => {
+      const threshold = 100;
+      const isAtBottom = viewport.scrollHeight - viewport.scrollTop <= viewport.clientHeight + threshold;
+      isAtBottomRef.current = isAtBottom;
+      if (isAtBottom && showNewMessageButton) {
+        setShowNewMessageButton(false);
+      }
+    };
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => viewport.removeEventListener('scroll', handleScroll);
+  }, [getViewport, showNewMessageButton]);
   const fetchWorkerStatus = async () => {
     try {
       const res = await fetch('/api/worker-status');
@@ -183,16 +200,7 @@ export function HomePage() {
     const viewport = getViewport();
     if (viewport) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-    }
-    setShowNewMessageButton(false);
-    isAtBottomRef.current = true;
-  };
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    const threshold = 50;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + threshold;
-    isAtBottomRef.current = isAtBottom;
-    if (isAtBottom && showNewMessageButton) {
+      isAtBottomRef.current = true;
       setShowNewMessageButton(false);
     }
   };
@@ -223,7 +231,7 @@ export function HomePage() {
             Professional-grade WebSocket telemetry and observability layer.
           </p>
         </div>
-        <StatsGrid messages={messages} status={status} />
+        <StatsGrid messages={messages} status={status} sessionTotal={sessionTotal} />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <Card className="lg:col-span-5 shadow-soft border-border/50 bg-card/80 backdrop-blur-sm">
             <CardHeader>
@@ -232,15 +240,13 @@ export function HomePage() {
                   <CardTitle className="text-2xl">Control Center</CardTitle>
                   <CardDescription>Handshake & Uplink Management</CardDescription>
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge
-                    variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
-                    className={`px-3 py-1 capitalize transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}
-                  >
-                    {status === 'connecting' && <RefreshCw className="w-3 h-3 mr-2 animate-spin" />}
-                    {status}
-                  </Badge>
-                </div>
+                <Badge
+                  variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
+                  className={`px-3 py-1 capitalize transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}
+                >
+                  {status === 'connecting' && <RefreshCw className="w-3 h-3 mr-2 animate-spin" />}
+                  {status}
+                </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -250,17 +256,11 @@ export function HomePage() {
                     <Settings2 className="w-4 h-4 text-muted-foreground" />
                     <Label htmlFor="auto-reconnect" className="text-sm font-medium cursor-pointer">Auto-Reconnect</Label>
                   </div>
-                  <Switch
-                    id="auto-reconnect"
-                    checked={autoReconnect}
-                    onCheckedChange={setAutoReconnect}
-                  />
+                  <Switch id="auto-reconnect" checked={autoReconnect} onCheckedChange={setAutoReconnect} />
                 </div>
                 <div className="flex gap-2">
                   {status === 'connected' ? (
-                    <Button variant="outline" className="w-full" onClick={disconnect}>
-                      Terminate Link
-                    </Button>
+                    <Button variant="outline" className="w-full" onClick={disconnect}>Terminate Link</Button>
                   ) : (
                     <Button
                       className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-lg shadow-accent-primary/20"
@@ -272,9 +272,7 @@ export function HomePage() {
                   )}
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button variant="secondary" size="icon" onClick={fetchDiagnostics}>
-                        <Bug className="h-4 w-4" />
-                      </Button>
+                      <Button variant="secondary" size="icon" onClick={fetchDiagnostics}><Bug className="h-4 w-4" /></Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[700px] max-h-[90vh] flex flex-col">
                       <DialogHeader>
@@ -285,7 +283,6 @@ export function HomePage() {
                         <DialogDescription>Infrastructure health and audit logs for low-level debugging.</DialogDescription>
                       </DialogHeader>
                       <div className="flex-1 overflow-y-auto pr-2 space-y-6 py-4">
-                        {/* System Health Section */}
                         <div className="space-y-3">
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                             <ShieldCheck className="w-3 h-3" /> System Overview
@@ -403,11 +400,7 @@ export function HomePage() {
               </TooltipProvider>
             </CardHeader>
             <CardContent className="p-0 flex-1 overflow-hidden relative">
-              <ScrollArea
-                className="h-full px-6"
-                ref={scrollViewportRef}
-                onScrollCapture={handleScroll}
-              >
+              <ScrollArea className="h-full px-6" ref={scrollAreaRef}>
                 <div className="space-y-2 py-6">
                   {messages.length === 0 ? (
                     <div className="h-[450px] flex flex-col items-center justify-center text-muted-foreground space-y-4">
@@ -422,7 +415,7 @@ export function HomePage() {
                 </div>
               </ScrollArea>
               {showNewMessageButton && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
                   <Button
                     size="sm"
                     className="rounded-full shadow-2xl bg-accent-primary text-white gap-2 px-6 h-10 hover:scale-105 active:scale-95 transition-all"
