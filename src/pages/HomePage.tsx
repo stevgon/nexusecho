@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Wifi, WifiOff, Activity, Clock, Trash2, Bug, CheckCircle2, XCircle, Info, RefreshCw, Server, ArrowDown, Settings2 } from 'lucide-react';
+import { Send, Wifi, Activity, Clock, Trash2, Bug, RefreshCw, Server, ArrowDown, Settings2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,14 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { Toaster } from '@/components/ui/sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { EchoMessage, WsMessagePayload, WsAttempt, ApiResponse, HealthResponse } from '@shared/types';
 const MAX_RECONNECT_ATTEMPTS = 5;
-const INITIAL_RECONNECT_DELAY = 800;
+const INITIAL_RECONNECT_DELAY = 1000;
 export function HomePage() {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [messages, setMessages] = useState<EchoMessage[]>([]);
@@ -24,24 +23,96 @@ export function HomePage() {
   const [diagAttempts, setDiagAttempts] = useState<WsAttempt[]>([]);
   const [isLoadingDiag, setIsLoadingDiag] = useState(false);
   const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null);
-  // Reconnect state
   const [autoReconnect, setAutoReconnect] = useState(true);
   const [reconnectCount, setReconnectCount] = useState(0);
-  // UX State
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
   const isAtBottomRef = useRef(true);
   const wsRef = useRef<WebSocket | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onopen = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setStatus('disconnected');
+  }, []);
+  const connect = useCallback(() => {
+    if (wsRef.current || !isMountedRef.current) return;
+    setStatus('connecting');
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        if (!isMountedRef.current) {
+          ws.close();
+          return;
+        }
+        setStatus('connected');
+        setReconnectCount(0);
+        toast.success('Nexus Node Connected');
+      };
+      ws.onmessage = (event) => {
+        if (!isMountedRef.current) return;
+        const arrivalTime = Date.now();
+        try {
+          const data = JSON.parse(event.data) as EchoMessage;
+          const enrichedMessage: EchoMessage = {
+            ...data,
+            rtt: data.clientTimestamp > 0 ? Math.max(0, arrivalTime - data.clientTimestamp) : undefined
+          };
+          setMessages((prev) => [...prev, enrichedMessage]);
+          if (!isAtBottomRef.current) {
+            setShowNewMessageButton(true);
+          }
+        } catch (e) {
+          console.warn('Malformed WS frame', e);
+        }
+      };
+      ws.onclose = (event) => {
+        if (!isMountedRef.current) return;
+        wsRef.current = null;
+        setStatus('disconnected');
+        if (!event.wasClean && autoReconnect && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
+          const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectCount);
+          setReconnectCount(prev => prev + 1);
+          toast.info(`Connection lost. Retrying in ${delay}ms...`);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, delay);
+        } else if (!event.wasClean && reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
+          setStatus('error');
+          toast.error('Maximum reconnection attempts reached.');
+        }
+      };
+      ws.onerror = () => {
+        if (!isMountedRef.current) return;
+        setStatus('error');
+      };
+    } catch (e) {
+      console.error('Socket Instantiation Error:', e);
+      setStatus('error');
+      wsRef.current = null;
+    }
+  }, [autoReconnect, reconnectCount]);
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { 
+    return () => {
       isMountedRef.current = false;
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      disconnect();
     };
-  }, []);
+  }, [disconnect]);
   const fetchDiagnostics = async () => {
     setIsLoadingDiag(true);
     try {
@@ -58,86 +129,16 @@ export function HomePage() {
   };
   const checkDoHealth = async () => {
     try {
-      const res = await fetch('/api/ws'); 
+      const res = await fetch('/api/ws');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as HealthResponse;
       setHealthStatus(data);
       toast.success('Durable Object is reachable via HTTP');
     } catch (e) {
       console.error('DO Health Check failed', e);
-      toast.error(`DO is unreachable: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      toast.error(`DO is unreachable`);
     }
   };
-  const connect = useCallback(() => {
-    if (wsRef.current || !isMountedRef.current) return;
-    setStatus('connecting');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
-    try {
-      const ws = new WebSocket(wsUrl);
-      ws.onopen = () => {
-        if (!isMountedRef.current) { ws.close(); return; }
-        setStatus('connected');
-        setReconnectCount(0);
-        toast.success('Nexus Node Connected');
-      };
-      ws.onmessage = (event) => {
-        if (!isMountedRef.current) return;
-        const arrivalTime = Date.now();
-        try {
-          const data = JSON.parse(event.data) as EchoMessage;
-          const enrichedMessage: EchoMessage = {
-            ...data,
-            rtt: data.clientTimestamp > 0 ? Math.max(0, arrivalTime - data.clientTimestamp) : undefined
-          };
-          setMessages((prev) => [...prev, enrichedMessage]);
-          // If not at bottom, show the affordance button
-          if (!isAtBottomRef.current) {
-            setShowNewMessageButton(true);
-          }
-        } catch (e) {
-          console.warn('Malformed WS frame', e);
-        }
-      };
-      ws.onclose = (event) => {
-        if (!isMountedRef.current) return;
-        wsRef.current = null;
-        setStatus('disconnected');
-        if (!event.wasClean && autoReconnect && reconnectCount < MAX_RECONNECT_ATTEMPTS) {
-          const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectCount);
-          setReconnectCount(prev => prev + 1);
-          toast.info(`Connection lost. Retrying in ${delay}ms... (Attempt ${reconnectCount + 1}/${MAX_RECONNECT_ATTEMPTS})`);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, delay);
-        } else if (!event.wasClean && reconnectCount >= MAX_RECONNECT_ATTEMPTS) {
-          setStatus('error');
-          toast.error('Maximum reconnection attempts reached.');
-        }
-      };
-      ws.onerror = (ev) => {
-        console.error('WS Socket Error:', ev);
-        if (isMountedRef.current) {
-          setStatus('error');
-        }
-        wsRef.current = null;
-      };
-      wsRef.current = ws;
-    } catch (e) {
-      console.error('Socket Instantiation Error:', e);
-      setStatus('error');
-      wsRef.current = null;
-    }
-  }, [autoReconnect, reconnectCount]);
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-    setReconnectCount(0);
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setStatus('disconnected');
-  }, []);
   const sendMessage = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() || status !== 'connected' || !wsRef.current) return;
@@ -164,13 +165,12 @@ export function HomePage() {
   };
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 120;
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
     isAtBottomRef.current = isAtBottom;
     if (isAtBottom) {
       setShowNewMessageButton(false);
     }
   };
-  // Smart auto-scroll effect
   useEffect(() => {
     if (isAtBottomRef.current && scrollViewportRef.current) {
       const scrollElement = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]');
@@ -210,7 +210,6 @@ export function HomePage() {
                     variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
                     className={`px-3 py-1 capitalize transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}
                   >
-                    {status === 'connected' && <Wifi className="w-3 h-3 mr-2" />}
                     {status === 'connecting' && <RefreshCw className="w-3 h-3 mr-2 animate-spin" />}
                     {status}
                   </Badge>
@@ -229,31 +228,30 @@ export function HomePage() {
                     <Settings2 className="w-4 h-4 text-muted-foreground" />
                     <Label htmlFor="auto-reconnect" className="text-sm font-medium cursor-pointer">Auto-Reconnect</Label>
                   </div>
-                  <Switch 
-                    id="auto-reconnect" 
-                    checked={autoReconnect} 
+                  <Switch
+                    id="auto-reconnect"
+                    checked={autoReconnect}
                     onCheckedChange={setAutoReconnect}
                     aria-label="Toggle automatic reconnection"
                   />
                 </div>
                 <div className="flex gap-2">
                   {status === 'connected' ? (
-                    <Button variant="outline" className="w-full" onClick={disconnect} aria-label="Disconnect from node">
+                    <Button variant="outline" className="w-full" onClick={disconnect}>
                       Disconnect
                     </Button>
                   ) : (
                     <Button
-                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-md transition-all active:scale-[0.98]"
+                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white"
                       onClick={connect}
                       disabled={status === 'connecting'}
-                      aria-label="Connect to nexus node"
                     >
                       {status === 'connecting' ? 'Negotiating...' : 'Connect to Node'}
                     </Button>
                   )}
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button variant="secondary" size="icon" onClick={fetchDiagnostics} aria-label="Open diagnostics">
+                      <Button variant="secondary" size="icon" onClick={fetchDiagnostics}>
                         <Bug className="h-4 w-4" />
                       </Button>
                     </DialogTrigger>
@@ -273,7 +271,7 @@ export function HomePage() {
                               {healthStatus ? `ID: ${healthStatus.doId.slice(0, 8)}...` : 'Status unknown'}
                             </p>
                           </div>
-                          <Button size="sm" onClick={checkDoHealth} className="gap-2" aria-label="Perform health check">
+                          <Button size="sm" onClick={checkDoHealth} className="gap-2">
                             <Activity className="w-3 h-3" /> Check Path
                           </Button>
                         </div>
@@ -294,9 +292,7 @@ export function HomePage() {
                                       {attempt.success ? "Handshake Success" : "Failed"}
                                     </Badge>
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground opacity-60 truncate mb-1">{attempt.userAgent}</p>
-                                  {attempt.error && <p className="text-destructive font-mono text-[9px] mt-1">Error: {attempt.error}</p>}
-                                  {attempt.stage && <p className="text-accent-primary text-[9px]">Stage: {attempt.stage}</p>}
+                                  <p className="text-[10px] text-muted-foreground truncate">{attempt.userAgent}</p>
                                 </div>
                               ))
                             )}
@@ -318,14 +314,12 @@ export function HomePage() {
                     onChange={(e) => setInputText(e.target.value)}
                     disabled={status !== 'connected'}
                     className="bg-secondary/30 h-12 focus-visible:ring-accent-primary"
-                    aria-label="WebSocket message input"
                   />
                 </div>
-                <Button 
-                  type="submit" 
-                  disabled={status !== 'connected' || !inputText.trim()} 
+                <Button
+                  type="submit"
+                  disabled={status !== 'connected' || !inputText.trim()}
                   className="w-full h-12 text-base transition-all active:scale-[0.98]"
-                  aria-label="Send message"
                 >
                   <Send className="w-4 h-4 mr-2" /> Emit Pulse
                 </Button>
@@ -341,13 +335,12 @@ export function HomePage() {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => setMessages([])} 
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setMessages([])}
                       disabled={messages.length === 0}
-                      aria-label="Clear message stream"
-                      className="hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      className="hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -357,14 +350,14 @@ export function HomePage() {
               </TooltipProvider>
             </CardHeader>
             <CardContent className="p-0 flex-1 overflow-hidden relative">
-              <ScrollArea 
-                className="h-full px-6" 
+              <ScrollArea
+                className="h-full px-6"
                 ref={scrollViewportRef}
                 onScrollCapture={handleScroll}
               >
                 <div className="space-y-4 py-6">
                   {messages.length === 0 ? (
-                    <div className="h-[400px] flex flex-col items-center justify-center text-muted-foreground space-y-4 animate-fade-in">
+                    <div className="h-[400px] flex flex-col items-center justify-center text-muted-foreground space-y-4">
                       <Clock className="w-12 h-12 opacity-10" />
                       <p className="text-sm font-medium opacity-50">Listening for pulses...</p>
                     </div>
@@ -389,14 +382,12 @@ export function HomePage() {
                   )}
                 </div>
               </ScrollArea>
-              {/* New Messages Affordance */}
               {showNewMessageButton && (
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 animate-bounce">
-                  <Button 
-                    size="sm" 
-                    className="rounded-full shadow-lg bg-accent-primary hover:bg-accent-primary/90 text-white gap-2 px-4 h-8"
+                  <Button
+                    size="sm"
+                    className="rounded-full shadow-lg bg-accent-primary text-white gap-2 px-4 h-8"
                     onClick={scrollToBottom}
-                    aria-label="Scroll to newest messages"
                   >
                     <ArrowDown className="w-3 h-3" />
                     New Messages
@@ -407,10 +398,9 @@ export function HomePage() {
           </Card>
         </div>
         <footer className="pt-12 pb-6 text-center text-muted-foreground/30 text-[10px] tracking-[0.2em] uppercase font-mono">
-          NEXUS ECHO v2.6 • INFRASTRUCTURE TELEMETRY ACTIVE • EDGE NODE: {window.location.host}
+          NEXUS ECHO v2.6 �� INFRASTRUCTURE TELEMETRY ACTIVE
         </footer>
       </div>
-      <Toaster richColors position="top-right" />
     </div>
   );
 }
