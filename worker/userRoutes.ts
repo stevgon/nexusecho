@@ -10,15 +10,17 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const origin = c.req.header('Origin') || 'unknown';
     const ua = c.req.header('User-Agent') || 'unknown';
     console.log(`[WS Handshake Request] Path: ${c.req.path}, Host: ${host}, Upgrade: ${upgradeHeader}, Connection: ${connectionHeader}`);
-    // Case-insensitive check for websocket protocol
+    
+    const id = c.env.GlobalDurableObject.idFromName("global");
+    const stub = c.env.GlobalDurableObject.get(id);
+    
     if (!upgradeHeader.toLowerCase().includes('websocket')) {
-      console.warn(`[WS Handshake Rejected] Missing Upgrade: websocket header. Got: ${upgradeHeader}`);
-      return c.text('Expected Upgrade: websocket', 426);
+      console.log(`[HTTP Health Check] Plain GET from ${host}, proxying to DO`);
+    } else {
+      console.log(`[WS Upgrade Request] Proxying to DO: ${id.toString()}`);
     }
+    
     try {
-      const id = c.env.GlobalDurableObject.idFromName("global");
-      const stub = c.env.GlobalDurableObject.get(id);
-      console.log(`[Proxying to DO] Handing off request to GlobalDurableObject: ${id.toString()}`);
       // Pass the raw request to the Durable Object
       return await stub.fetch(c.req.raw);
     } catch (err) {

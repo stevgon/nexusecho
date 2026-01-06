@@ -8,12 +8,11 @@ interface MessageItemProps {
 }
 export const MessageItem: React.FC<MessageItemProps> = React.memo(({ msg }) => {
   const isServerInit = msg.id === 'server-init';
-  const formatOptions: Intl.DateTimeFormatOptions = { 
-    hour12: false, 
-    hour: '2-digit', 
-    minute: '2-digit', 
-    second: '2-digit', 
-    fractionalSecondDigits: 3 
+  const formatOptions: Intl.DateTimeFormatOptions = {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
   };
   return (
     <div className="group flex flex-col space-y-0.5 animate-scale-in hover:bg-accent/5 p-2 rounded-lg transition-colors">
