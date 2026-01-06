@@ -37,11 +37,18 @@ export class GlobalDurableObject extends DurableObject {
       return updatedItems;
     }
     async fetch(request: Request): Promise<Response> {
+      const upgradeHeader = request.headers.get('Upgrade') ?? '';
+      if (!upgradeHeader.toLowerCase().startsWith('websocket')) {
+        return new Response('Expected websocket', { status: 400 });
+      }
       const webSocketPair = new WebSocketPair();
-      const [client, server] = Object.values(webSocketPair);
+      const client = webSocketPair[0];
+      const server = webSocketPair[1];
       server.addEventListener("message", (event) => {
+        console.log(`DO: Received WS message data type: ${typeof event.data}, length: ${event.data?.length || 0}`);
         try {
           const payload = JSON.parse(event.data as string) as WsMessagePayload;
+          console.log(`DO: Echo sent for ID ${payload.id} payload:`, payload);
           const echoResponse: EchoMessage = {
             ...payload,
             serverTimestamp: Date.now()
@@ -51,6 +58,7 @@ export class GlobalDurableObject extends DurableObject {
           console.error("Failed to process WS message", error);
         }
       });
+      console.log('DO: WebSocket pair established');
       return new Response(null, { status: 101, webSocket: client });
     }
 }
