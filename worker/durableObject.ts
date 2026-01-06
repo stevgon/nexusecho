@@ -58,6 +58,17 @@ export class GlobalDurableObject extends DurableObject {
           console.error("Failed to process WS message", error);
         }
       });
+      server.addEventListener('open', () => { 
+        console.log('DO: Server WebSocket open, sending diagnostic connected message'); 
+        const connectedMsg: EchoMessage = { 
+          id: 'server-connected', 
+          text: 'DO connected', 
+          clientTimestamp: 0, 
+          serverTimestamp: Date.now() 
+        }; 
+        server.send(JSON.stringify(connectedMsg)); 
+      });
+      server.accept();
       console.log('DO: WebSocket pair established');
       return new Response(null, { status: 101, webSocket: client });
     }
