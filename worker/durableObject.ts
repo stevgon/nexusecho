@@ -63,29 +63,35 @@ export class GlobalDurableObject extends DurableObject {
   }
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const upgradeHeader = request.headers.get('Upgrade') || '';
+    const upgradeHeader = request.headers.get('Upgrade');
+    const connectionHeader = request.headers.get('Connection') || '';
     const userAgent = request.headers.get('User-Agent') || 'unknown';
     const origin = request.headers.get('Origin') || 'unknown';
-    // Handle HTTP Health Checks
-    if (!upgradeHeader.toLowerCase().includes('websocket')) {
-      console.log(`[DO HTTP Request] Received standard request at ${url.pathname}`);
+    // Handle standard HTTP Diagnostic/Health requests
+    if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+      console.log(`[DO HTTP Diagnostic] Health check received at ${url.pathname}`);
       const health: HealthResponse = {
-        status: 'DO is reachable and active',
+        status: 'Durable Object logic core active',
         timestamp: Date.now(),
         doId: this.ctx.id.toString(),
-        usage: 'websocket_echo_node'
+        usage: 'nexus_echo_v3',
+        protocol: 'http/1.1'
       };
       return new Response(JSON.stringify(health), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       });
     }
-    console.log(`[DO WS Upgrade] Attempting handshake for ${userAgent}`);
+    // Strict validation for WebSocket upgrade requests
+    if (request.method !== 'GET' || !connectionHeader.toLowerCase().includes('upgrade')) {
+      return new Response("Expected Upgrade: websocket", { status: 426 });
+    }
+    console.log(`[DO WS Handshake] Initializing WebSocket pair for ${userAgent}`);
     await this.recordWsAttempt(userAgent, origin, undefined, 'handshake_start');
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     server.accept();
-    console.log(`[DO WS Accepted] Connection accepted, setting up listeners`);
+    console.log(`[DO WS Accepted] Connection accepted, event listeners attached`);
     server.addEventListener("message", async (event) => {
       try {
         const payload = JSON.parse(event.data as string) as WsMessagePayload;
@@ -103,9 +109,9 @@ export class GlobalDurableObject extends DurableObject {
       console.log(`[DO WS Closed] Code: ${cls.code}, Reason: ${cls.reason}`);
     });
     server.addEventListener("error", (err) => {
-      console.error(`[DO WS Error]`, err);
+      console.error(`[DO WS Internal Error]`, err);
     });
-    // Send initial pulse with a slight delay to ensure client readiness
+    // Send initial welcome frame
     setTimeout(() => {
       try {
         const connectedMsg: EchoMessage = {
@@ -115,9 +121,9 @@ export class GlobalDurableObject extends DurableObject {
           serverTimestamp: Date.now()
         };
         server.send(JSON.stringify(connectedMsg));
-        console.log(`[DO WS Init] Sent welcome frame`);
+        console.log(`[DO WS Welcome] Frame dispatched`);
       } catch (e) {
-        console.warn(`[DO WS Init Failed] Client might have closed early`);
+        console.warn(`[DO WS Init Warning] Early connection termination detected`);
       }
     }, 50);
     return new Response(null, { status: 101, webSocket: client });

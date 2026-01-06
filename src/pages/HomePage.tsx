@@ -141,7 +141,7 @@ export function HomePage() {
   };
   const checkDoHealth = async () => {
     try {
-      const res = await fetch('/api/ws');
+      const res = await fetch('/api/health-do');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as HealthResponse;
       setHealthStatus(data);

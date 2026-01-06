@@ -26,9 +26,13 @@ export interface WsAttempt {
   error?: string;
   stage?: string;
 }
+/**
+ * Response interface for the dedicated /api/health-do endpoint
+ */
 export interface HealthResponse {
   status: string;
   timestamp: number;
   doId: string;
   usage: string;
+  protocol?: string;
 }
