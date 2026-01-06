@@ -34,6 +34,9 @@ export function HomePage() {
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
+  const getViewport = useCallback(() => {
+    return scrollViewportRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+  }, []);
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
@@ -90,7 +93,6 @@ export function HomePage() {
         if (!isMountedRef.current) return;
         wsRef.current = null;
         setStatus('disconnected');
-        // Reconnection logic using local state ref pattern to avoid hook cycle
         if (!event.wasClean && autoReconnect) {
           setReconnectCount((count) => {
             if (count < MAX_RECONNECT_ATTEMPTS) {
@@ -167,31 +169,30 @@ export function HomePage() {
     }
   };
   const scrollToBottom = () => {
-    if (scrollViewportRef.current) {
-      const scrollElement = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollElement) {
-        scrollElement.scrollTo({ top: scrollElement.scrollHeight, behavior: 'smooth' });
-      }
+    const viewport = getViewport();
+    if (viewport) {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
     }
     setShowNewMessageButton(false);
+    isAtBottomRef.current = true;
   };
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    // Buffer threshold increased to 150px for better sensitivity
-    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 150;
+    const threshold = 50; 
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + threshold;
     isAtBottomRef.current = isAtBottom;
-    if (isAtBottom) {
+    if (isAtBottom && showNewMessageButton) {
       setShowNewMessageButton(false);
     }
   };
   useEffect(() => {
-    if (isAtBottomRef.current && scrollViewportRef.current) {
-      const scrollElement = scrollViewportRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollElement) {
-        scrollElement.scrollTop = scrollElement.scrollHeight;
+    if (isAtBottomRef.current) {
+      const viewport = getViewport();
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
       }
     }
-  }, [messages]);
+  }, [messages, getViewport]);
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="py-8 md:py-10 lg:py-12 min-h-screen flex flex-col space-y-8 relative">
@@ -221,7 +222,7 @@ export function HomePage() {
                   <CardDescription>Handshake & Uplink Management</CardDescription>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge
+                  <Badge 
                     variant={status === 'connected' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}
                     className={`px-3 py-1 capitalize transition-all ${status === 'connecting' ? 'animate-pulse' : ''}`}
                   >
@@ -243,10 +244,10 @@ export function HomePage() {
                     <Settings2 className="w-4 h-4 text-muted-foreground" />
                     <Label htmlFor="auto-reconnect" className="text-sm font-medium cursor-pointer">Auto-Reconnect</Label>
                   </div>
-                  <Switch
-                    id="auto-reconnect"
-                    checked={autoReconnect}
-                    onCheckedChange={setAutoReconnect}
+                  <Switch 
+                    id="auto-reconnect" 
+                    checked={autoReconnect} 
+                    onCheckedChange={setAutoReconnect} 
                   />
                 </div>
                 <div className="flex gap-2">
@@ -255,8 +256,8 @@ export function HomePage() {
                       Terminate Link
                     </Button>
                   ) : (
-                    <Button
-                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-lg shadow-accent-primary/20"
+                    <Button 
+                      className="w-full bg-accent-primary hover:bg-accent-primary/90 text-white shadow-lg shadow-accent-primary/20" 
                       onClick={connect}
                       disabled={status === 'connecting'}
                     >
@@ -321,7 +322,7 @@ export function HomePage() {
               <form onSubmit={sendMessage} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="msg-input" className="text-sm font-medium text-foreground px-1">Telemetry Pulse</Label>
-                  <Input
+                  <Input 
                     id="msg-input"
                     placeholder={status === 'connected' ? "Enter payload data..." : "Uplink offline"}
                     value={inputText}
@@ -330,8 +331,8 @@ export function HomePage() {
                     className="bg-secondary/30 h-12 focus-visible:ring-accent-primary border-none shadow-inner"
                   />
                 </div>
-                <Button
-                  type="submit"
+                <Button 
+                  type="submit" 
                   disabled={status !== 'connected' || !inputText.trim()}
                   className="w-full h-12 text-base transition-all active:scale-[0.98] bg-foreground text-background hover:bg-foreground/90"
                 >
@@ -349,9 +350,9 @@ export function HomePage() {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
                       onClick={() => setMessages([])}
                       disabled={messages.length === 0}
                       className="hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -364,8 +365,8 @@ export function HomePage() {
               </TooltipProvider>
             </CardHeader>
             <CardContent className="p-0 flex-1 overflow-hidden relative">
-              <ScrollArea
-                className="h-full px-6"
+              <ScrollArea 
+                className="h-full px-6" 
                 ref={scrollViewportRef}
                 onScrollCapture={handleScroll}
               >
@@ -384,8 +385,8 @@ export function HomePage() {
               </ScrollArea>
               {showNewMessageButton && (
                 <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-                  <Button
-                    size="sm"
+                  <Button 
+                    size="sm" 
                     className="rounded-full shadow-2xl bg-accent-primary text-white gap-2 px-6 h-10 hover:scale-105 active:scale-95 transition-all"
                     onClick={scrollToBottom}
                   >
