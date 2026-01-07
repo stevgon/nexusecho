@@ -59,7 +59,11 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     try {
       const stub = getGlobalStub(c);
       console.log(`[WS Proxy] Forwarding valid handshake to DO: ${stub.id.toString()}`);
-      return await stub.fetch(c.req.raw);
+      // Explicitly pass headers to preserve Upgrade header
+      return await stub.fetch(c.req.raw.url, {
+        method: c.req.raw.method,
+        headers: c.req.raw.headers
+      });
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       console.error(`[WS Proxy Error] Handshake forwarding failed:\n${errorObj.stack}`);

@@ -98,7 +98,7 @@ export class GlobalDurableObject extends DurableObject {
       'origin': headersSnapshot['origin'] || 'n/a'
     });
     const webSocketPair = new WebSocketPair();
-    const [client, server] = Object.values(webSocketPair);
+    const [client, server] = [webSocketPair[0], webSocketPair[1]];
     server.accept();
     server.addEventListener("message", async (event) => {
       try {
