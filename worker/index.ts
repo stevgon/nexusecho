@@ -34,13 +34,11 @@ app.onError((err, c) => { console.error(`[ERROR] ${err}`); return c.json({ succe
 
 console.log(`Server is running`)
 
+// Initialize routes
+userRoutes(app);
+
 export default {
   async fetch(request, env, ctx) {
-    const pathname = new URL(request.url).pathname;
-
-    // Initialize routes
-    userRoutes(app);
-
     return app.fetch(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
