@@ -1,3 +1,8 @@
 
 # Bootstrap marker
 .bootstrap-complete
+
+node_modules/**
+package-lock.json
+
+dist/**
