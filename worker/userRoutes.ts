@@ -36,10 +36,11 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   app.get('/api/health-do', async (c) => {
     try {
       const stub = getGlobalStub(c);
-      return await stub.fetch(c.req.raw);
+      // Reconstruct request to avoid issues with reusing the incoming Request object
+      return await stub.fetch(c.req.url);
     } catch (err) {
       console.error('[Health DO Error]', err);
-      return c.json({ success: false, error: 'Durable Object health check failed' }, 500);
+      return c.json({ success: false, error: 'Durable Object health check failed', detail: String(err) }, 500);
     }
   });
   app.get('/api/ws', async (c) => {
